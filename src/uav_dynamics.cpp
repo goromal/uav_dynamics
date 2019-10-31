@@ -27,7 +27,7 @@ void QuadrotorDynamics::f(const State &x, const Vector4d &ft, ErrorState &dx, co
           + ext_wrench.block<3,1>(0,0) / mass_; // body frame
   dx.q = x.w;
   dx.w = inertia_inv_ * (ft.segment<3>(TAUX) - x.w.cross(inertia_matrix_ * x.w) /*- angular_drag_ * x.w.cwiseProduct(x.w)*/
-                         + ext_wrench.block<3,1>(2,0)); // body frame
+                         + ext_wrench.block<3,1>(3,0)); // body frame
 }
 
 void QuadrotorDynamics::f(const State &x, const Vector4d &u, ErrorState &dx, Vector6d& imu, const Vector6d &ext_wrench) const
