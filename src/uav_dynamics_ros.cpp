@@ -26,7 +26,7 @@ QuadrotorDynamicsROS::QuadrotorDynamicsROS() : nh_(), br_(), uav_(), input_((Vec
         x0_vec.push_back(0.0); x0_vec.push_back(0.0); x0_vec.push_back(0.0); // omega
     }
     Matrix<double, 13, 1> x0(x0_vec.data());
-    double mass = nh_.param<double>("uav_mass", 2.0);
+    mass_ = nh_.param<double>("uav_mass", 2.0);
     Matrix3d inertia;
     std::vector<double> inertia_vec;
     if (nh_.hasParam("uav_principle_inertias"))
@@ -43,8 +43,8 @@ QuadrotorDynamicsROS::QuadrotorDynamicsROS() : nh_(), br_(), uav_(), input_((Vec
 //    double drag_const = nh_.param<double>("uav_linear_mu", 0.05);
 //    double angular_drag = nh_.param<double>("uav_angular_mu", 0.0005);
     Vector3d gravity = Vector3d(0., 0., grav_);
-    uav_.loadParameters(x0, mass, inertia, gravity); //, drag_const, angular_drag);
-    eq_thrust_ = mass * grav_;
+    uav_.loadParameters(x0, mass_, inertia, gravity); //, drag_const, angular_drag);
+    eq_thrust_ = mass_ * grav_;
 
     // Set up infinite loop
     timer_ = nh_.createTimer(ros::Duration(ros::Rate(1000)), &QuadrotorDynamicsROS::run, this);
@@ -76,8 +76,17 @@ void QuadrotorDynamicsROS::run(const ros::TimerEvent &)
     prev_time_ = now_time;
 
     // integrate dynamics with most recent command IF we're not gonna fall through the floor
+    if (uav_.get_state().p(2) >= 0.0  && input_(THRUST) < mass_ * grav_) // grounded
+    {
+        ext_w_.setZero();
+        ext_w_(2) = -mass_ * grav_;
+        input_.setZero();
+    }
+    else // <<<< FOR TESTING
+        ext_w_.setZero();
     uav_.run(dt, input_, ext_w_);
-    if (!(uav_.get_state().p(2) < 0.0) && !(input_(THRUST) > 0.5)) // eq_thrust_)
+//    if (!(uav_.get_state().p(2) < 0.0) && !(input_(THRUST) > 0.5)) // eq_thrust_)
+    if (uav_.get_state().p(2) > 0.0 /*&& input_(THRUST) < 0.4*/) // grounded
     {
         State grounded_state;
         (grounded_state.arr << uav_.get_state().p(0), uav_.get_state().p(0), 0.0,

@@ -23,7 +23,7 @@ void QuadrotorDynamics::f(const State &x, const Vector4d &ft, ErrorState &dx, co
 {
 //  Eigen::Vector3d v_rel_ = x.v; // Vehicle air velocity
   dx.p = x.q.rota(x.v);
-  dx.v = -1.0 * e_z * ft(THRUST) / mass_ /*- drag_constant_ * v_rel_*/ + x.q.rotp(gravity_) - x.w.cross(x.v)
+  dx.v = -1.0 * e_z * ft(THRUST) / mass_ + x.q.rotp(gravity_) - x.w.cross(x.v)
           + ext_wrench.block<3,1>(0,0) / mass_; // body frame
   dx.q = x.w;
   dx.w = inertia_inv_ * (ft.segment<3>(TAUX) - x.w.cross(inertia_matrix_ * x.w) /*- angular_drag_ * x.w.cwiseProduct(x.w)*/
@@ -33,7 +33,7 @@ void QuadrotorDynamics::f(const State &x, const Vector4d &ft, ErrorState &dx, co
 void QuadrotorDynamics::f(const State &x, const Vector4d &u, ErrorState &dx, Vector6d& imu, const Vector6d &ext_wrench) const
 {
     f(x, u, dx, ext_wrench);
-    imu.block<3,1>(ACC, 0) = x.v + x.w.cross(x.v) - x.q.rotp(gravity_);
+    imu.block<3,1>(ACC, 0) = dx.v + x.w.cross(x.v) - x.q.rotp(gravity_);
     imu.block<3,1>(GYRO, 0) = x.w;
 }
 

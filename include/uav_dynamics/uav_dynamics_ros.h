@@ -27,6 +27,7 @@ private:
 
     QuadrotorDynamics uav_;
     double grav_;
+    double mass_;
     Vector4d input_;
     Vector6d ext_w_;
     double prev_time_;
