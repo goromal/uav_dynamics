@@ -2,12 +2,13 @@
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include "utils/quat.h"
-#include "utils/xform.h"
-#include "utils/support.h"
+#include "geometry-utils-lib/quat.h"
+#include "geometry-utils-lib/xform.h"
+#include "math-utils-lib/constants.h"
 
 using namespace Eigen;
 using namespace transforms;
+using namespace utils_math;
 
 namespace uav_dynamics {
 

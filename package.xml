@@ -13,7 +13,9 @@
   <depend>eigen3</depend>
   <depend>geometry_msgs</depend>
   <depend>visualization_msgs</depend>
-  <depend>rosflight_msgs</depend>
+  <depend>rosflight_sil</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+  <depend>aerowake_utils</depend>
+
 </package>

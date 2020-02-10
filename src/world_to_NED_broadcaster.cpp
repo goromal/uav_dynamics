@@ -2,12 +2,11 @@
 #include <Eigen/Core>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
-#include "utils/quat.h"
+#include "geometry-utils-lib/quat.h"
+#include "math-utils-lib/constants.h"
 
 using namespace transforms;
 using namespace Eigen;
-
-#define A_PI 3.1415926535
 
 int main(int argc, char **argv)
 {
@@ -15,7 +14,7 @@ int main(int argc, char **argv)
     static tf2_ros::StaticTransformBroadcaster static_broadcaster;
 
     // frame rotation from world to NED
-    Quatd q_0_NED = Quatd::from_axis_angle((Vector3d() << 1.0, 0.0, 0.0).finished(), A_PI);
+    Quatd q_0_NED = Quatd::from_axis_angle((Vector3d() << 1.0, 0.0, 0.0).finished(), UTILS_PI);
 
     geometry_msgs::TransformStamped static_transformStamped;
     static_transformStamped.header.stamp = ros::Time::now();

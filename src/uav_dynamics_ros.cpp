@@ -2,21 +2,28 @@
 
 namespace uav_dynamics {
 
-QuadrotorDynamicsROS::QuadrotorDynamicsROS() : nh_(), br_(), uav_(), input_((Vector4d() << 0., 0., 0., 0.).finished()),
+QuadrotorDynamicsROS::QuadrotorDynamicsROS() : nh_(), nh_private_("~"), br_(), uav_(),
+    input_((Vector4d() << 0., 0., 0., 0.).finished()),
     ext_w_((Vector6d() << 0., 0., 0., 0., 0., 0.).finished()), prev_time_(0.0)
 {
+    std::string mav_name = "NO_MAV_NAME_GIVEN";
+    if (nh_private_.hasParam("mav_name"))
+        nh_private_.getParam("mav_name", mav_name);
+    std::string truth_msg_string = "/truth/NED";
+
     // Set up ROS objects
     motor_wrench_sub_ = nh_.subscribe("uav_motor_wrench", 1, &QuadrotorDynamicsROS::wrenchCallback, this);
     ext_wrench_sub_ = nh_.subscribe("uav_ext_wrench", 1, &QuadrotorDynamicsROS::extWrenchCallback, this);
-    sim_state_pub_ = nh_.advertise<rosflight_msgs::ROSflightSimState>("uav_truth_NED", 1);
+    truth_pub_      = nh_.advertise<nav_msgs::Odometry>(mav_name + truth_msg_string, 1);
+    sim_state_pub_  = nh_.advertise<rosflight_sil::ROSflightSimState>("uav_truth_NED", 1);
     uav_marker_pub_ = nh_.advertise<visualization_msgs::Marker>("uav_marker", 1);
 
     // Load parameters into dynamic model
-    grav_ = nh_.param<double>("gravity", 9.80665);
+    grav_ = nh_private_.param<double>("gravity", 9.80665);
     std::vector<double> x0_vec;
-    if (nh_.hasParam("uav_x0"))
+    if (nh_private_.hasParam("truth_x0"))
     {
-        nh_.getParam("uav_x0", x0_vec);
+        nh_private_.getParam("truth_x0", x0_vec);
     }
     else
     {
@@ -26,20 +33,22 @@ QuadrotorDynamicsROS::QuadrotorDynamicsROS() : nh_(), br_(), uav_(), input_((Vec
         x0_vec.push_back(0.0); x0_vec.push_back(0.0); x0_vec.push_back(0.0); // omega
     }
     Matrix<double, 13, 1> x0(x0_vec.data());
-    mass_ = nh_.param<double>("uav_mass", 2.0);
+    mass_ = nh_private_.param<double>("mass", 2.0);
     Matrix3d inertia;
-    std::vector<double> inertia_vec;
-    if (nh_.hasParam("uav_principle_inertias"))
-    {
-        nh_.getParam("uav_principle_inertias", inertia_vec);
-    }
-    else
-    {
-        inertia_vec.push_back(0.07);
-        inertia_vec.push_back(0.07);
-        inertia_vec.push_back(0.12);
-    }
-    inertia = (Vector3d() << inertia_vec[0], inertia_vec[1], inertia_vec[2]).finished().asDiagonal();
+
+    double uav_ixx = 0.07; // default
+    if (nh_private_.hasParam("uav_ixx"))
+        nh_private_.getParam("uav_ixx", uav_ixx);
+
+    double uav_iyy = 0.07;
+    if (nh_private_.hasParam("uav_iyy"))
+        nh_private_.getParam("uav_iyy", uav_iyy);
+
+    double uav_izz = 0.12;
+    if (nh_private_.hasParam("uav_izz"))
+        nh_private_.getParam("uav_izz", uav_izz);
+
+    inertia = (Vector3d() << uav_ixx, uav_iyy, uav_izz).finished().asDiagonal();
 //    double drag_const = nh_.param<double>("uav_linear_mu", 0.05);
 //    double angular_drag = nh_.param<double>("uav_angular_mu", 0.0005);
     Vector3d gravity = Vector3d(0., 0., grav_);
@@ -79,11 +88,11 @@ void QuadrotorDynamicsROS::run(const ros::TimerEvent &)
     if (uav_.get_state().p(2) >= 0.0  && input_(THRUST) < mass_ * grav_) // grounded
     {
         ext_w_.setZero();
-        ext_w_(2) = -mass_ * grav_;
+        ext_w_(2) = -mass_ * grav_; // for IMU calibration; needs to look like there's a normal force acting on the UAV!
         input_.setZero();
     }
-    else // <<<< FOR TESTING
-        ext_w_.setZero();
+    // else // <<<< FOR TESTING
+    //     ext_w_.setZero();
     uav_.run(dt, input_, ext_w_);
 //    if (!(uav_.get_state().p(2) < 0.0) && !(input_(THRUST) > 0.5)) // eq_thrust_)
     if (uav_.get_state().p(2) > 0.0 /*&& input_(THRUST) < 0.4*/) // grounded
@@ -100,7 +109,7 @@ void QuadrotorDynamicsROS::run(const ros::TimerEvent &)
     State state = uav_.get_state();
     Vector3d imu_accel = uav_.get_imu_accel();
     Vector3d imu_gyros = uav_.get_imu_gyro();
-    rosflight_msgs::ROSflightSimState state_msg;
+    rosflight_sil::ROSflightSimState state_msg;
     state_msg.header.stamp = ros::Time::now();
     state_msg.pos.x = state.p(0);
     state_msg.pos.y = state.p(1);
@@ -129,6 +138,15 @@ void QuadrotorDynamicsROS::run(const ros::TimerEvent &)
     NED2UAV.transform.translation = state_msg.pos;
     NED2UAV.transform.rotation = state_msg.att;
     br_.sendTransform(NED2UAV);
+    nav_msgs::Odometry truth_msg;
+    truth_msg.header.stamp = ros::Time::now();
+    truth_msg.pose.pose.position.x = state.p(0);
+    truth_msg.pose.pose.position.y = state.p(1);
+    truth_msg.pose.pose.position.z = state.p(2);
+    truth_msg.pose.pose.orientation = state_msg.att;
+    truth_msg.twist.twist.linear = state_msg.vel;
+    truth_msg.twist.twist.angular = state_msg.w;
+    truth_pub_.publish(truth_msg);
     visualization_msgs::Marker marker;
     marker.header.frame_id = "NED";
     marker.header.stamp = ros::Time::now();
@@ -140,10 +158,10 @@ void QuadrotorDynamicsROS::run(const ros::TimerEvent &)
     marker.pose.position.y = state_msg.pos.y;
     marker.pose.position.z = state_msg.pos.z;
     marker.pose.orientation = state_msg.att;
-    marker.scale.x = 2.25;
-    marker.scale.y = 2.25;
-    marker.scale.z = 2.25;
-    marker.color.b = 1.0f;
+    marker.scale.x = 1.25;
+    marker.scale.y = 1.25;
+    marker.scale.z = 1.25;
+    marker.color.b = 0.0f;
     marker.color.g = 1.0f;
     marker.color.r = 1.0f;
     marker.color.a = 1.0f;
