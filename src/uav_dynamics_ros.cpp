@@ -4,22 +4,29 @@ namespace uav_dynamics {
 
 QuadrotorDynamicsROS::QuadrotorDynamicsROS() : nh_(), nh_private_("~"), br_(), uav_(),
     input_((Vector4d() << 0., 0., 0., 0.).finished()),
-    ext_w_((Vector6d() << 0., 0., 0., 0., 0., 0.).finished()), prev_time_(0.0)
+    ext_w_((Vector6d() << 0., 0., 0., 0., 0., 0.).finished()), prev_time_(0.0), tfBuffer_(), tfListener_(tfBuffer_)
 {
     std::string mav_name = "NO_MAV_NAME_GIVEN";
     if (nh_private_.hasParam("mav_name"))
         nh_private_.getParam("mav_name", mav_name);
     std::string truth_msg_string = "/truth/NED";
+    std::string rel_truth_msg_string = "/rel_truth/NED";
 
     // Set up ROS objects
     motor_wrench_sub_ = nh_.subscribe("uav_motor_wrench", 1, &QuadrotorDynamicsROS::wrenchCallback, this);
     ext_wrench_sub_ = nh_.subscribe("uav_ext_wrench", 1, &QuadrotorDynamicsROS::extWrenchCallback, this);
     truth_pub_      = nh_.advertise<nav_msgs::Odometry>(mav_name + truth_msg_string, 1);
+    rel_truth_pub_  = nh_.advertise<nav_msgs::Odometry>(mav_name + rel_truth_msg_string, 1);
     sim_state_pub_  = nh_.advertise<rosflight_sil::ROSflightSimState>("uav_truth_NED", 1);
     uav_marker_pub_ = nh_.advertise<visualization_msgs::Marker>("uav_marker", 1);
 
     // Load parameters into dynamic model
     grav_ = nh_private_.param<double>("gravity", 9.80665);
+
+    double boat_speed;
+    ROS_ASSERT(nh_private_.getParam("boat_speed", boat_speed));
+    v_BOAT_NED_ = Vector3d(boat_speed, 0.0, 0.0);
+
     std::vector<double> x0_vec;
     if (nh_private_.hasParam("truth_x0"))
     {
@@ -166,6 +173,39 @@ void QuadrotorDynamicsROS::run(const ros::TimerEvent &)
     marker.color.r = 1.0f;
     marker.color.a = 1.0f;
     uav_marker_pub_.publish(marker);
+
+    // True relative odometry
+    /*
+     * Position is now expressed w.r.t. ship origin and in terms of ship axes
+     * Orientation is now relative to ship axes // (only differs from NED in yaw)
+     * Velocity is still in UAV body frame, but minus ship velocity in UAV body frame
+     * Angular velocity [IS UNTOUCHED] <<<<
+     */
+    try
+    {
+        tf_BOAT_UAV_ = tfBuffer_.lookupTransform("boatNED", "UAV", ros::Time(0));
+        T_BOAT_UAV_ = Xformd(Vector3d(tf_BOAT_UAV_.transform.translation.x,
+                                      tf_BOAT_UAV_.transform.translation.y,
+                                      tf_BOAT_UAV_.transform.translation.z),
+                             Quatd(Vector4d(tf_BOAT_UAV_.transform.rotation.w,
+                                            tf_BOAT_UAV_.transform.rotation.x,
+                                            tf_BOAT_UAV_.transform.rotation.y,
+                                            tf_BOAT_UAV_.transform.rotation.z)));
+
+        nav_msgs::Odometry rel_truth_msg;
+        rel_truth_msg.header.stamp = ros::Time::now();
+        rel_truth_msg.pose.pose.position.x = T_BOAT_UAV_.t_(0);
+        rel_truth_msg.pose.pose.position.y = T_BOAT_UAV_.t_(1);
+        rel_truth_msg.pose.pose.position.z = T_BOAT_UAV_.t_(2);
+        rel_truth_msg.pose.pose.orientation = tf_BOAT_UAV_.transform.rotation;
+        Vector3d vrel_UAV = state.v - state.q.rotp(v_BOAT_NED_);
+        rel_truth_msg.twist.twist.linear.x = vrel_UAV(0);
+        rel_truth_msg.twist.twist.linear.y = vrel_UAV(1);
+        rel_truth_msg.twist.twist.linear.z = vrel_UAV(2);
+        rel_truth_msg.twist.twist.angular = state_msg.w; // UNALTERED <<<<
+        rel_truth_pub_.publish(rel_truth_msg);
+    }
+    catch (tf2::TransformException &) {}
 }
 
 } // end namespace uav_dynamics
